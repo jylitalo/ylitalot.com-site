@@ -1,0 +1,83 @@
+---
+- hosts: localhost
+  vars:
+    origin_access_prefix: "CloudFrontOriginAccessIdentityList.Items"
+    random_number: "{{ 10000 | random }}"
+    stack_name: www-ylitalot-com
+    website: www.ylitalot.com
+    output_dir: "{{ ansible_env.PWD }}/files/ylitalot.com/_site"
+  tasks:
+  ###
+  # cloud-front-origin-access-identity
+  ###
+  - name: default comment in origin-access
+    set_fact:
+      origin_access_comment: 'access-identity-{{website}}.s3.amazonaws.com'
+  - name: 'gets existing origin-access-identities'
+    command: aws cloudfront 'list-cloud-front-origin-access-identities'
+    register: aws_cmd
+  - name: searches from identies
+    set_fact:
+      identity_exists: "{{aws_cmd.stdout | from_json | json_query(j_query)}}"
+    vars:
+      j_query: "{{origin_access_prefix}}[?Comment=='{{origin_access_comment}}']"
+  - name: creates new identity
+    command: aws cloudfront 'create-cloud-front-origin-access-identity' '--cloud-front-origin-access-identity-config' "CallerReference={{random_number}},Comment={{origin_access_comment}}"
+    register: identity_created
+    when: identity_exists == []
+  - name: lists Origin Access IDs
+    command: aws cloudfront 'list-cloud-front-origin-access-identities'
+    register: origin_access
+  - name: extracts id from output
+    set_fact:
+      origin_access_id: "{{origin_access.stdout | from_json | json_query(j_query) | join}}"
+    vars:
+      j_query: "{{origin_access_prefix}}[?Comment=='{{origin_access_comment}}'].Id"
+  ###
+  # setup
+  ###
+  - name: runs region cloudformation
+    cloudformation:
+      stack_name: "{{stack_name}}"
+      state: "present"
+      disable_rollback: false
+      region: "eu-west-1"
+      template: "files/cloudformation-region.yml"
+      template_parameters:
+        SiteName: "{{website}}"
+        BucketName: "{{website}}"
+        OriginAccessId: "{{origin_access_id}}"
+    register: cf
+  - name: output from cf or for cf
+    debug: msg="{{item}}"
+    with_items:
+    - "DomainName: {{website}}.s3-eu-west-1.amazonaws.com"
+  - name: runs global cloudformation
+    cloudformation:
+      stack_name: "{{stack_name}}"
+      state: "present"
+      disable_rollback: false
+      region: "us-east-1"
+      template: "files/cloudformation-global.yml"
+      template_parameters:
+        SiteName: "{{website}}"
+        BucketName: "{{website}}"
+        DomainName: "{{cf.stack_outputs.DomainName}}"
+        # DomainName: "{{website}}.s3.amazonaws.com"
+        # DomainName: "{{website}}.s3-eu-west-1.amazonaws.com"
+        # TODO: 
+        # DomainName needs more experiments with new buckets. 
+        # Conflicting results so far.
+        OriginAccessId: "{{origin_access_id}}"
+    register: cf
+  - name: output from cf
+    debug: msg="{{item}}"
+    with_items:
+    - "output_dir = {{output_dir}}"
+  - name: sync content
+    command: aws s3 sync {{item}} "s3://{{website}}/"
+    args:
+      chdir: "{{output_dir}}"
+    with_items:
+      - "images"
+      - "*"

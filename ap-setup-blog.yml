@@ -1,0 +1,17 @@
+---
+- hosts: localhost
+  connection: local
+  vars:
+    site: ylitalot.com
+  tasks:
+  ###
+  # .gitignore
+  ###
+  - name: does setup for Jekyll blog
+    include_role:
+      name: JekyllSetup
+    vars:
+      content_repo: "git@bitbucket.org:jylitalo/{{site}}.git"
+      override_dir: "{{playbook_dir}}/files/override"
+      images_dir: "{{playbook_dir}}/images"
+

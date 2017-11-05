@@ -1,0 +1,16 @@
+---
+- hosts: localhost
+  connection: local
+  tasks:
+  - name: sync content to Google Cloud Storage
+    include_role: 
+      name: SyncToGoogleStorage
+    vars:
+      bucket: www.ylitalot.com
+      location: us-central1
+      project: ylitalotcom
+      storage_class: regional
+      chdir: "{{playbook_dir}}/blog/_site"
+      dirs:
+      - {src: "images", dest: "images", extra_args: ""}
+      - {src: ".", dest: "", extra_args: "-x images"}
